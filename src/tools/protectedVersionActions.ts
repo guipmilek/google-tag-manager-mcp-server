@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { McpAgentToolParamsModel } from "../models/McpAgentModel";
+import { classifyExecutionError } from "../protectedMutation/execution";
 import {
   ConfirmationScope,
   SafetyConfig,
@@ -43,7 +44,7 @@ interface VersionPlan {
   containerId: string;
   workspaceId: string;
   workspacePath: string;
-  workspaceFingerprint: string | null;
+  workspaceFingerprint: string;
   workspaceName: string | null;
   workspaceChangeCount: number;
   mergeConflictCount: number;
@@ -97,14 +98,12 @@ function validateVersionScope(
   );
 }
 
-function buildPaths(
+function workspacePath(
   accountId: string,
   containerId: string,
   workspaceId: string,
-): { workspacePath: string } {
-  return {
-    workspacePath: `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`,
-  };
+): string {
+  return `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
 }
 
 async function versionPlan(
@@ -116,14 +115,20 @@ async function versionPlan(
   name?: string,
   notes?: string,
 ): Promise<VersionPlan> {
-  const { workspacePath } = buildPaths(accountId, containerId, workspaceId);
+  const path = workspacePath(accountId, containerId, workspaceId);
   const [workspaceResponse, statusResponse] = await Promise.all([
-    client.accounts.containers.workspaces.get({ path: workspacePath }),
-    client.accounts.containers.workspaces.getStatus({ path: workspacePath }),
+    client.accounts.containers.workspaces.get({ path }),
+    client.accounts.containers.workspaces.getStatus({ path }),
   ]);
 
   const workspace = workspaceResponse.data || {};
   const status = statusResponse.data || {};
+  const fingerprint =
+    typeof workspace.fingerprint === "string" ? workspace.fingerprint : null;
+  if (!fingerprint) {
+    throw new Error(`WORKSPACE_FINGERPRINT_MISSING:${path}`);
+  }
+
   const mergeConflict = Array.isArray(status.mergeConflict)
     ? status.mergeConflict
     : [];
@@ -133,6 +138,13 @@ async function versionPlan(
     );
   }
 
+  const workspaceChangeCount = Array.isArray(status.workspaceChange)
+    ? status.workspaceChange.length
+    : 0;
+  if (workspaceChangeCount === 0) {
+    throw new Error("WORKSPACE_HAS_NO_CHANGES");
+  }
+
   return {
     operation_hash_version: 1,
     stage,
@@ -140,13 +152,10 @@ async function versionPlan(
     accountId,
     containerId,
     workspaceId,
-    workspacePath,
-    workspaceFingerprint:
-      typeof workspace.fingerprint === "string" ? workspace.fingerprint : null,
+    workspacePath: path,
+    workspaceFingerprint: fingerprint,
     workspaceName: typeof workspace.name === "string" ? workspace.name : null,
-    workspaceChangeCount: Array.isArray(status.workspaceChange)
-      ? status.workspaceChange.length
-      : 0,
+    workspaceChangeCount,
     mergeConflictCount: mergeConflict.length,
     requestBody: {
       ...(name ? { name } : {}),
@@ -178,7 +187,14 @@ export const protectedVersionActions = (
     "gtm_create_version_preflight",
     "Validate and snapshot creation of a GTM container version from a workspace. This never publishes the version.",
     VersionInputSchema,
-    async ({ stage, accountId, containerId, workspaceId, name, notes }: VersionInput) => {
+    async ({
+      stage,
+      accountId,
+      containerId,
+      workspaceId,
+      name,
+      notes,
+    }: VersionInput) => {
       log(`Running GTM create-version preflight for stage '${stage}'`);
       try {
         const config = getSafetyConfig(env);
@@ -237,11 +253,15 @@ export const protectedVersionActions = (
           ],
         };
       } catch (error) {
-        return structuredError("CREATE_VERSION_PREFLIGHT_FAILED", errorMessage(error), {
-          stage,
-          executed: false,
-          mutation_dispatched: false,
-        });
+        return structuredError(
+          "CREATE_VERSION_PREFLIGHT_FAILED",
+          errorMessage(error),
+          {
+            stage,
+            executed: false,
+            mutation_dispatched: false,
+          },
+        );
       }
     },
   );
@@ -260,6 +280,11 @@ export const protectedVersionActions = (
       confirmation,
     }: VersionExecuteInput) => {
       log(`Running GTM create-version execution for stage '${stage}'`);
+      let dispatchStarted = false;
+      let apiResponseReceived = false;
+      let operationHash: string | null = null;
+      let confirmationFingerprint: string | null = null;
+
       try {
         const config = getSafetyConfig(env);
         validateVersionScope(config, accountId, containerId, workspaceId);
@@ -273,7 +298,7 @@ export const protectedVersionActions = (
           name,
           notes,
         );
-        const operationHash = await sha256Hex(plan);
+        operationHash = await sha256Hex(plan);
         const verifiedConfirmation = await verifyConfirmation(
           config,
           confirmation,
@@ -281,13 +306,40 @@ export const protectedVersionActions = (
           operationHash,
           stage,
         );
-        registerConfirmationBeforeApiCall(verifiedConfirmation.fingerprint);
+        confirmationFingerprint = verifiedConfirmation.fingerprint;
+        registerConfirmationBeforeApiCall(confirmationFingerprint);
 
-        const response =
-          await client.accounts.containers.workspaces.create_version({
-            path: plan.workspacePath,
-            requestBody: plan.requestBody,
+        dispatchStarted = true;
+        let response: any;
+        try {
+          response =
+            await client.accounts.containers.workspaces.create_version({
+              path: plan.workspacePath,
+              requestBody: plan.requestBody,
+            });
+          apiResponseReceived = true;
+        } catch (error) {
+          const classification = classifyExecutionError(error);
+          return structuredError(classification.errorType, errorMessage(error), {
+            stage,
+            mode: "EXECUTE",
+            validation_status: "PRIOR_VALIDATION_VERIFIED",
+            execution_attempted: true,
+            executed: false,
+            execution_status: classification.executionMayHaveCompleted
+              ? "UNKNOWN"
+              : "FAILED",
+            execution_may_have_completed:
+              classification.executionMayHaveCompleted,
+            mutation_dispatched: true,
+            api_response_received: false,
+            confirmation_verified: true,
+            confirmation_registered_before_api_call: true,
+            confirmation_token_fingerprint: confirmationFingerprint,
+            operation_hash: operationHash,
           });
+        }
+
         const containerVersion = response.data?.containerVersion || null;
         const compilerError = Boolean(response.data?.compilerError);
         const versionId = containerVersion?.containerVersionId || null;
@@ -299,8 +351,9 @@ export const protectedVersionActions = (
         if (versionId) {
           const versionPath = `accounts/${accountId}/containers/${containerId}/versions/${versionId}`;
           try {
-            const readBack =
-              await client.accounts.containers.versions.get({ path: versionPath });
+            const readBack = await client.accounts.containers.versions.get({
+              path: versionPath,
+            });
             verification = {
               performed: true,
               verified: true,
@@ -335,11 +388,12 @@ export const protectedVersionActions = (
                       : "SUCCEEDED",
                   confirmation_verified: true,
                   confirmation_registered_before_api_call: true,
-                  confirmation_token_fingerprint:
-                    verifiedConfirmation.fingerprint,
+                  confirmation_token_fingerprint: confirmationFingerprint,
                   operation_hash: operationHash,
                   operation_hash_version: 1,
                   action: "createVersion",
+                  mutation_dispatched: true,
+                  api_response_received: true,
                   container_version_id: versionId,
                   compiler_error: compilerError,
                   published: false,
@@ -354,13 +408,48 @@ export const protectedVersionActions = (
           ],
         };
       } catch (error) {
-        return structuredError("CREATE_VERSION_EXECUTION_BLOCKED", errorMessage(error), {
-          stage,
-          mode: "EXECUTE",
-          execution_attempted: false,
-          executed: false,
-          execution_status: "BLOCKED_BEFORE_API_CALL",
-        });
+        if (dispatchStarted) {
+          return structuredError(
+            apiResponseReceived
+              ? "CONNECTOR_POST_RESPONSE_ERROR"
+              : "TRANSPORT_OR_CONNECTOR_ERROR",
+            errorMessage(error),
+            {
+              stage,
+              mode: "EXECUTE",
+              execution_attempted: true,
+              executed: apiResponseReceived,
+              execution_status: apiResponseReceived
+                ? "SUCCEEDED_WITH_VERIFICATION_WARNINGS"
+                : "UNKNOWN",
+              execution_may_have_completed: !apiResponseReceived,
+              mutation_dispatched: true,
+              api_response_received: apiResponseReceived,
+              confirmation_verified: Boolean(confirmationFingerprint),
+              confirmation_registered_before_api_call: Boolean(
+                confirmationFingerprint,
+              ),
+              confirmation_token_fingerprint: confirmationFingerprint,
+              operation_hash: operationHash,
+            },
+          );
+        }
+
+        return structuredError(
+          "CREATE_VERSION_EXECUTION_BLOCKED",
+          errorMessage(error),
+          {
+            stage,
+            mode: "EXECUTE",
+            execution_attempted: false,
+            executed: false,
+            execution_status: "BLOCKED_BEFORE_API_CALL",
+            mutation_dispatched: false,
+            api_response_received: false,
+            confirmation_registered_before_api_call: false,
+            operation_hash: operationHash,
+          },
+        );
       }
     },
   );
