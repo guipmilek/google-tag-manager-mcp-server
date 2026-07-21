@@ -11,7 +11,8 @@ import {
 } from "./guards";
 import {
   getCollection,
-  parsePayload,
+  mergeUpdatePayload,
+  parseCreatePayload,
   resourcePath,
   workspacePath,
 } from "./model";
@@ -94,16 +95,21 @@ export async function normalizeOperations(
       throw new Error(`WORKSPACE_FINGERPRINT_MISSING:${parent}`);
     }
 
-    const data =
-      requested.action === "create" || requested.action === "update"
-        ? parsePayload(requested.resource, requested.data)
-        : undefined;
-
     let currentResource: JsonObject | null = null;
+    let data: JsonObject | undefined;
+
     if (requested.action === "create") {
-      await ensureNoDuplicateName(client, requested, data || {});
+      data = parseCreatePayload(requested.resource, requested.data);
+      await ensureNoDuplicateName(client, requested, data);
     } else {
       currentResource = await readResource(client, requested);
+      if (requested.action === "update") {
+        data = mergeUpdatePayload(
+          requested.resource,
+          currentResource,
+          requested.data,
+        );
+      }
     }
 
     const resourceFingerprint =
