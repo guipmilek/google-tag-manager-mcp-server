@@ -353,11 +353,12 @@ export const protectedVersionActions = (
         dispatchStarted = true;
         let response: any;
         try {
-          response =
-            await client.accounts.containers.workspaces.create_version({
+          response = await client.accounts.containers.workspaces.create_version(
+            {
               path: plan.workspacePath,
               requestBody: plan.requestBody,
-            });
+            },
+          );
           apiResponseReceived = true;
         } catch (error) {
           const classification = classifyExecutionError(error);
