@@ -68,7 +68,9 @@ export function parsePayload(
   data: JsonObject | undefined,
 ): JsonObject {
   if (!data) {
-    throw new Error(`data is required for ${resource} create/update operations`);
+    throw new Error(
+      `data is required for ${resource} create/update operations`,
+    );
   }
   return payloadSchemas[resource].parse(data) as JsonObject;
 }

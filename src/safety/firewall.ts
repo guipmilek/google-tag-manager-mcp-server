@@ -34,7 +34,9 @@ export function installLegacyMutationFirewall(
   server: McpServer,
   env: Env,
 ): void {
-  const originalTool = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  const originalTool = server.tool.bind(server) as (
+    ...args: unknown[]
+  ) => unknown;
   const serverWithMutableTool = server as unknown as {
     tool: (...args: unknown[]) => unknown;
   };

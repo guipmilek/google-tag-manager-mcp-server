@@ -54,11 +54,14 @@ export const safetyActions = (
                 },
                 allowlists: {
                   account_ids: configuredAllowlist(config.allowedAccountIds),
-                  container_ids: configuredAllowlist(config.allowedContainerIds),
-                  workspace_ids: configuredAllowlist(config.allowedWorkspaceIds),
+                  container_ids: configuredAllowlist(
+                    config.allowedContainerIds,
+                  ),
+                  workspace_ids: configuredAllowlist(
+                    config.allowedWorkspaceIds,
+                  ),
                 },
-                max_operations_per_request:
-                  config.maxOperationsPerRequest,
+                max_operations_per_request: config.maxOperationsPerRequest,
                 confirmation: {
                   secret_configured: Boolean(config.confirmationSecret),
                   ttl_seconds: config.confirmationTtlSeconds,

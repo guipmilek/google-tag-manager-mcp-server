@@ -1,6 +1,14 @@
-export type ProtectedWorkspaceResource = "tag" | "trigger" | "variable" | "folder";
+export type ProtectedWorkspaceResource =
+  | "tag"
+  | "trigger"
+  | "variable"
+  | "folder";
 
-export type ProtectedWorkspaceAction = "create" | "update" | "remove" | "revert";
+export type ProtectedWorkspaceAction =
+  | "create"
+  | "update"
+  | "remove"
+  | "revert";
 
 export type ConfirmationVerb = "EXECUTE" | "CREATE_VERSION" | "PUBLISH";
 
@@ -16,7 +24,8 @@ export interface RequestedMutationOperation {
   data?: JsonObject;
 }
 
-export interface NormalizedMutationOperation extends RequestedMutationOperation {
+export interface NormalizedMutationOperation
+  extends RequestedMutationOperation {
   path?: string;
   parent: string;
   workspacePath: string;

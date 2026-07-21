@@ -53,13 +53,7 @@ test("confirmation is bound to hash, verb, stage and replay state", async () => 
   registerConfirmationBeforeApiCall(verified.fingerprint);
   await assert.rejects(
     () =>
-      verifyConfirmation(
-        config,
-        created.token,
-        "EXECUTE",
-        "abc123",
-        "TEST",
-      ),
+      verifyConfirmation(config, created.token, "EXECUTE", "abc123", "TEST"),
     /CONFIRMATION_REPLAYED/,
   );
 });

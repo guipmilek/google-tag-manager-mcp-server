@@ -73,7 +73,9 @@ export function validateOperationShape(
   }
 
   if (!operation.resourceId) {
-    throw new Error(`resourceId is required for ${operation.action} operations`);
+    throw new Error(
+      `resourceId is required for ${operation.action} operations`,
+    );
   }
   if (operation.action === "update" && !operation.data) {
     throw new Error("data is required for update operations");

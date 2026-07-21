@@ -54,7 +54,11 @@ export const protectedMutationActions = (
       try {
         const config = getSafetyConfig(env);
         const client = await getTagManagerClient(props);
-        const normalized = await normalizeOperations(client, config, operations);
+        const normalized = await normalizeOperations(
+          client,
+          config,
+          operations,
+        );
         const operationHash = await mutationHash(stage, normalized);
         const scope = confirmationScope(stage, normalized);
         const receipt = await createConfirmation(
@@ -131,7 +135,11 @@ export const protectedMutationActions = (
       try {
         const config = getSafetyConfig(env);
         const client = await getTagManagerClient(props);
-        const normalized = await normalizeOperations(client, config, operations);
+        const normalized = await normalizeOperations(
+          client,
+          config,
+          operations,
+        );
         const operationHash = await mutationHash(stage, normalized);
         const verifiedConfirmation = await verifyConfirmation(
           config,
@@ -165,31 +173,35 @@ export const protectedMutationActions = (
               );
             }
 
-            return structuredError(classification.errorType, errorMessage(error), {
-              mode: "EXECUTE",
-              validation_status: "PRIOR_VALIDATION_VERIFIED",
-              execution_attempted: true,
-              executed: completed.length > 0,
-              execution_status: classification.executionMayHaveCompleted
-                ? "UNKNOWN"
-                : "FAILED",
-              execution_may_have_completed:
-                classification.executionMayHaveCompleted,
-              confirmation_verified: true,
-              confirmation_registered_before_api_call: true,
-              confirmation_token_fingerprint:
-                verifiedConfirmation.fingerprint,
-              operation_hash: operationHash,
-              operation_hash_version: 1,
-              operation_count: normalized.length,
-              operations_completed: completed.length,
-              operation_failed_index: index,
-              operations_not_attempted: normalized.length - index - 1,
-              completed_resource_names: completed.map(
-                (item) => item.resource_name,
-              ),
-              post_execution_verification: verification,
-            });
+            return structuredError(
+              classification.errorType,
+              errorMessage(error),
+              {
+                mode: "EXECUTE",
+                validation_status: "PRIOR_VALIDATION_VERIFIED",
+                execution_attempted: true,
+                executed: completed.length > 0,
+                execution_status: classification.executionMayHaveCompleted
+                  ? "UNKNOWN"
+                  : "FAILED",
+                execution_may_have_completed:
+                  classification.executionMayHaveCompleted,
+                confirmation_verified: true,
+                confirmation_registered_before_api_call: true,
+                confirmation_token_fingerprint:
+                  verifiedConfirmation.fingerprint,
+                operation_hash: operationHash,
+                operation_hash_version: 1,
+                operation_count: normalized.length,
+                operations_completed: completed.length,
+                operation_failed_index: index,
+                operations_not_attempted: normalized.length - index - 1,
+                completed_resource_names: completed.map(
+                  (item) => item.resource_name,
+                ),
+                post_execution_verification: verification,
+              },
+            );
           }
         }
 

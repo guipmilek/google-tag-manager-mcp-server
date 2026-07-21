@@ -290,25 +290,29 @@ export const protectedPublishActions = (
           apiResponseReceived = true;
         } catch (error) {
           const classification = classifyExecutionError(error);
-          return structuredError(classification.errorType, errorMessage(error), {
-            stage,
-            containerVersionId,
-            mode: "PUBLISH",
-            validation_status: "PRIOR_VALIDATION_VERIFIED",
-            execution_attempted: true,
-            executed: false,
-            execution_status: classification.executionMayHaveCompleted
-              ? "UNKNOWN"
-              : "FAILED",
-            execution_may_have_completed:
-              classification.executionMayHaveCompleted,
-            publication_dispatched: true,
-            api_response_received: false,
-            confirmation_verified: true,
-            confirmation_registered_before_api_call: true,
-            confirmation_token_fingerprint: confirmationFingerprint,
-            operation_hash: operationHash,
-          });
+          return structuredError(
+            classification.errorType,
+            errorMessage(error),
+            {
+              stage,
+              containerVersionId,
+              mode: "PUBLISH",
+              validation_status: "PRIOR_VALIDATION_VERIFIED",
+              execution_attempted: true,
+              executed: false,
+              execution_status: classification.executionMayHaveCompleted
+                ? "UNKNOWN"
+                : "FAILED",
+              execution_may_have_completed:
+                classification.executionMayHaveCompleted,
+              publication_dispatched: true,
+              api_response_received: false,
+              confirmation_verified: true,
+              confirmation_registered_before_api_call: true,
+              confirmation_token_fingerprint: confirmationFingerprint,
+              operation_hash: operationHash,
+            },
+          );
         }
 
         const compilerError = Boolean(response.data?.compilerError);

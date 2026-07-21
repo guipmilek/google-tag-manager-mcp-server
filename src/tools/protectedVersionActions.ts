@@ -312,32 +312,37 @@ export const protectedVersionActions = (
         dispatchStarted = true;
         let response: any;
         try {
-          response =
-            await client.accounts.containers.workspaces.create_version({
+          response = await client.accounts.containers.workspaces.create_version(
+            {
               path: plan.workspacePath,
               requestBody: plan.requestBody,
-            });
+            },
+          );
           apiResponseReceived = true;
         } catch (error) {
           const classification = classifyExecutionError(error);
-          return structuredError(classification.errorType, errorMessage(error), {
-            stage,
-            mode: "EXECUTE",
-            validation_status: "PRIOR_VALIDATION_VERIFIED",
-            execution_attempted: true,
-            executed: false,
-            execution_status: classification.executionMayHaveCompleted
-              ? "UNKNOWN"
-              : "FAILED",
-            execution_may_have_completed:
-              classification.executionMayHaveCompleted,
-            mutation_dispatched: true,
-            api_response_received: false,
-            confirmation_verified: true,
-            confirmation_registered_before_api_call: true,
-            confirmation_token_fingerprint: confirmationFingerprint,
-            operation_hash: operationHash,
-          });
+          return structuredError(
+            classification.errorType,
+            errorMessage(error),
+            {
+              stage,
+              mode: "EXECUTE",
+              validation_status: "PRIOR_VALIDATION_VERIFIED",
+              execution_attempted: true,
+              executed: false,
+              execution_status: classification.executionMayHaveCompleted
+                ? "UNKNOWN"
+                : "FAILED",
+              execution_may_have_completed:
+                classification.executionMayHaveCompleted,
+              mutation_dispatched: true,
+              api_response_received: false,
+              confirmation_verified: true,
+              confirmation_registered_before_api_call: true,
+              confirmation_token_fingerprint: confirmationFingerprint,
+              operation_hash: operationHash,
+            },
+          );
         }
 
         const containerVersion = response.data?.containerVersion || null;

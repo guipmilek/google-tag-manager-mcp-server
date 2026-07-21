@@ -35,7 +35,10 @@ export async function executeOne(
       requestBody: operation.data || {},
     });
     const data = (response.data || {}) as JsonObject;
-    return { resourceName: resolveResponsePath(operation, data), response: data };
+    return {
+      resourceName: resolveResponsePath(operation, data),
+      response: data,
+    };
   }
 
   if (!operation.path) {
@@ -49,7 +52,10 @@ export async function executeOne(
       requestBody: operation.data || {},
     });
     const data = (response.data || {}) as JsonObject;
-    return { resourceName: resolveResponsePath(operation, data), response: data };
+    return {
+      resourceName: resolveResponsePath(operation, data),
+      response: data,
+    };
   }
 
   if (operation.action === "remove") {

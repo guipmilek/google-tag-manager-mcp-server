@@ -29,7 +29,9 @@ async function readResource(
   if (!path) {
     throw new Error("resource path is unavailable");
   }
-  const response = await getCollection(client, operation.resource).get({ path });
+  const response = await getCollection(client, operation.resource).get({
+    path,
+  });
   return (response.data || {}) as JsonObject;
 }
 

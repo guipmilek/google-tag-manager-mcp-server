@@ -11,8 +11,12 @@ export function confirmationScope(
   return {
     stage,
     accountIds: [...new Set(operations.map((item) => item.accountId))].sort(),
-    containerIds: [...new Set(operations.map((item) => item.containerId))].sort(),
-    workspaceIds: [...new Set(operations.map((item) => item.workspaceId))].sort(),
+    containerIds: [
+      ...new Set(operations.map((item) => item.containerId)),
+    ].sort(),
+    workspaceIds: [
+      ...new Set(operations.map((item) => item.workspaceId)),
+    ].sort(),
     operationCount: operations.length,
   };
 }
