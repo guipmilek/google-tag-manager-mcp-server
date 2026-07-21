@@ -4,7 +4,11 @@ import {
   RequestedMutationOperation,
   SafetyConfig,
 } from "../safety";
-import { validateActionGate, validateOperationShape, validateScope } from "./guards";
+import {
+  validateActionGate,
+  validateOperationShape,
+  validateScope,
+} from "./guards";
 import {
   getCollection,
   parsePayload,
@@ -82,6 +86,12 @@ export async function normalizeOperations(
       workspaces.set(parent, workspace);
     }
 
+    const workspaceFingerprint =
+      typeof workspace.fingerprint === "string" ? workspace.fingerprint : null;
+    if (!workspaceFingerprint) {
+      throw new Error(`WORKSPACE_FINGERPRINT_MISSING:${parent}`);
+    }
+
     const data =
       requested.action === "create" || requested.action === "update"
         ? parsePayload(requested.resource, requested.data)
@@ -92,6 +102,19 @@ export async function normalizeOperations(
       await ensureNoDuplicateName(client, requested, data || {});
     } else {
       currentResource = await readResource(client, requested);
+    }
+
+    const resourceFingerprint =
+      currentResource && typeof currentResource.fingerprint === "string"
+        ? currentResource.fingerprint
+        : null;
+    if (
+      (requested.action === "update" || requested.action === "revert") &&
+      !resourceFingerprint
+    ) {
+      throw new Error(
+        `RESOURCE_FINGERPRINT_MISSING:${resourcePath(requested) || "unknown"}`,
+      );
     }
 
     normalized.push({
@@ -105,12 +128,8 @@ export async function normalizeOperations(
       parent,
       path: resourcePath(requested),
       workspacePath: parent,
-      workspaceFingerprint:
-        typeof workspace.fingerprint === "string" ? workspace.fingerprint : null,
-      resourceFingerprint:
-        currentResource && typeof currentResource.fingerprint === "string"
-          ? currentResource.fingerprint
-          : null,
+      workspaceFingerprint,
+      resourceFingerprint,
       currentResourceName:
         currentResource && typeof currentResource.name === "string"
           ? currentResource.name
