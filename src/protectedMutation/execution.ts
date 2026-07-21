@@ -83,7 +83,9 @@ function mismatchedExpectedFields(
   observed: JsonObject,
 ): string[] {
   return Object.entries(expected)
-    .filter(([key, value]) => canonicalJson(observed[key]) !== canonicalJson(value))
+    .filter(
+      ([key, value]) => canonicalJson(observed[key]) !== canonicalJson(value),
+    )
     .map(([key]) => key)
     .sort();
 }
@@ -133,7 +135,10 @@ export async function verifyCompletedOperation(
 
     return {
       resource_name: resourceName,
-      expected: comparedFields.length > 0 ? "READABLE_WITH_MATCHING_FIELDS" : "READABLE",
+      expected:
+        comparedFields.length > 0
+          ? "READABLE_WITH_MATCHING_FIELDS"
+          : "READABLE",
       observed: "READABLE",
       verified,
       fingerprint:
