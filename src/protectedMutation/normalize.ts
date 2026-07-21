@@ -46,21 +46,33 @@ async function ensureNoDuplicateName(
     return;
   }
 
-  const response = await getCollection(client, operation.resource).list({
-    parent: workspacePath(operation),
-  });
+  const collection = getCollection(client, operation.resource);
   const collectionKey = operation.resource;
-  const resources = Array.isArray(response.data?.[collectionKey])
-    ? response.data[collectionKey]
-    : [];
-  const duplicate = resources.find(
-    (item: JsonObject) =>
-      typeof item.name === "string" &&
-      item.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase(),
-  );
-  if (duplicate) {
-    throw new Error(`DUPLICATE_RESOURCE_NAME:${operation.resource}:${name}`);
-  }
+  let pageToken: string | undefined;
+
+  do {
+    const response = await collection.list({
+      parent: workspacePath(operation),
+      ...(pageToken ? { pageToken } : {}),
+    });
+    const resources = Array.isArray(response.data?.[collectionKey])
+      ? response.data[collectionKey]
+      : [];
+    const duplicate = resources.find(
+      (item: JsonObject) =>
+        typeof item.name === "string" &&
+        item.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase(),
+    );
+    if (duplicate) {
+      throw new Error(`DUPLICATE_RESOURCE_NAME:${operation.resource}:${name}`);
+    }
+
+    pageToken =
+      typeof response.data?.nextPageToken === "string" &&
+      response.data.nextPageToken
+        ? response.data.nextPageToken
+        : undefined;
+  } while (pageToken);
 }
 
 export async function normalizeOperations(
