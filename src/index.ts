@@ -2,6 +2,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { McpAgentPropsModel } from "./models/McpAgentModel";
+import { installLegacyMutationFirewall } from "./safety";
 import { tools } from "./tools";
 import {
   apisHandler,
@@ -19,11 +20,13 @@ export class GoogleTagManagerMCPServer extends McpAgent<
     version: getPackageVersion(),
     protocolVersion: "1.0",
     vendor: "stape-io",
-    homepage: "https://github.com/stape-io/google-tag-manager-mcp-server",
+    homepage: "https://github.com/guipmilek/google-tag-manager-mcp-server",
   });
 
   async init() {
     console.log("[MCP] init() called");
+
+    installLegacyMutationFirewall(this.server, this.env);
 
     tools.forEach((register) => {
       // @ts-ignore

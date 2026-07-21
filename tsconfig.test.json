@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "files": [
+    "src/safety/types.ts",
+    "src/safety/canonicalJson.ts",
+    "src/safety/confirmation.ts",
+    "src/safety/canonicalJson.test.ts",
+    "src/safety/confirmation.test.ts"
+  ]
+}
