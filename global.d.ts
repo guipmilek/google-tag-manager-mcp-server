@@ -17,6 +17,7 @@ declare namespace Cloudflare {
     GTM_ALLOW_CREATE_VERSION?: string;
     GTM_ALLOW_SET_LATEST?: string;
     GTM_ALLOW_PUBLISH?: string;
+    GTM_ALLOW_PUBLISH_NON_LATEST?: string;
     GTM_ALLOW_UNDELETE?: string;
     GTM_ALLOWED_ACCOUNT_IDS?: string;
     GTM_ALLOWED_CONTAINER_IDS?: string;
