@@ -25,6 +25,11 @@ const VersionInputSchema = {
   notes: z.string().max(1000).optional(),
 };
 
+const VersionExecuteInputSchema = {
+  ...VersionInputSchema,
+  confirmation: z.string().min(1),
+};
+
 type VersionInput = {
   stage: string;
   accountId: string;
@@ -48,13 +53,9 @@ interface VersionPlan {
   workspaceName: string | null;
   workspaceChangeCount: number;
   mergeConflictCount: number;
+  deletesWorkspace: true;
   requestBody: { name?: string; notes?: string };
 }
-
-const VersionExecuteInputSchema = {
-  ...VersionInputSchema,
-  confirmation: z.string().min(1),
-};
 
 function requireAllowlist(
   values: Set<string>,
@@ -106,16 +107,15 @@ function workspacePath(
   return `accounts/${accountId}/containers/${containerId}/workspaces/${workspaceId}`;
 }
 
-async function versionPlan(
+async function buildVersionPlan(
   client: any,
-  stage: string,
-  accountId: string,
-  containerId: string,
-  workspaceId: string,
-  name?: string,
-  notes?: string,
+  input: VersionInput,
 ): Promise<VersionPlan> {
-  const path = workspacePath(accountId, containerId, workspaceId);
+  const path = workspacePath(
+    input.accountId,
+    input.containerId,
+    input.workspaceId,
+  );
   const [workspaceResponse, statusResponse] = await Promise.all([
     client.accounts.containers.workspaces.get({ path }),
     client.accounts.containers.workspaces.getStatus({ path }),
@@ -129,54 +129,110 @@ async function versionPlan(
     throw new Error(`WORKSPACE_FINGERPRINT_MISSING:${path}`);
   }
 
-  const mergeConflict = Array.isArray(status.mergeConflict)
+  const mergeConflicts = Array.isArray(status.mergeConflict)
     ? status.mergeConflict
     : [];
-  if (mergeConflict.length > 0) {
+  if (mergeConflicts.length > 0) {
     throw new Error(
-      `WORKSPACE_HAS_UNRESOLVED_CONFLICTS:${mergeConflict.length}`,
+      `WORKSPACE_HAS_UNRESOLVED_CONFLICTS:${mergeConflicts.length}`,
     );
   }
 
-  const workspaceChangeCount = Array.isArray(status.workspaceChange)
-    ? status.workspaceChange.length
-    : 0;
-  if (workspaceChangeCount === 0) {
+  const workspaceChanges = Array.isArray(status.workspaceChange)
+    ? status.workspaceChange
+    : [];
+  if (workspaceChanges.length === 0) {
     throw new Error("WORKSPACE_HAS_NO_CHANGES");
   }
 
   return {
     operation_hash_version: 1,
-    stage,
+    stage: input.stage,
     action: "createVersion",
-    accountId,
-    containerId,
-    workspaceId,
+    accountId: input.accountId,
+    containerId: input.containerId,
+    workspaceId: input.workspaceId,
     workspacePath: path,
     workspaceFingerprint: fingerprint,
     workspaceName: typeof workspace.name === "string" ? workspace.name : null,
-    workspaceChangeCount,
-    mergeConflictCount: mergeConflict.length,
+    workspaceChangeCount: workspaceChanges.length,
+    mergeConflictCount: mergeConflicts.length,
+    deletesWorkspace: true,
     requestBody: {
-      ...(name ? { name } : {}),
-      ...(notes ? { notes } : {}),
+      ...(input.name ? { name: input.name } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
     },
   };
 }
 
-function versionScope(
-  stage: string,
-  accountId: string,
-  containerId: string,
-  workspaceId: string,
-): ConfirmationScope {
+function versionScope(input: VersionInput): ConfirmationScope {
   return {
-    stage,
-    accountIds: [accountId],
-    containerIds: [containerId],
-    workspaceIds: [workspaceId],
+    stage: input.stage,
+    accountIds: [input.accountId],
+    containerIds: [input.containerId],
+    workspaceIds: [input.workspaceId],
     operationCount: 1,
   };
+}
+
+async function verifyCreatedVersion(
+  client: any,
+  accountId: string,
+  containerId: string,
+  versionId: string | null,
+): Promise<Record<string, unknown>> {
+  if (!versionId) {
+    return {
+      performed: false,
+      verified: false,
+      warning: "CREATE_VERSION_RESPONSE_MISSING_VERSION_ID",
+    };
+  }
+
+  const path = `accounts/${accountId}/containers/${containerId}/versions/${versionId}`;
+  try {
+    const response = await client.accounts.containers.versions.get({ path });
+    return {
+      performed: true,
+      verified: true,
+      resource_name: path,
+      fingerprint: response.data?.fingerprint || null,
+      published: false,
+    };
+  } catch (error) {
+    return {
+      performed: true,
+      verified: false,
+      resource_name: path,
+      warning: errorMessage(error),
+      published: false,
+    };
+  }
+}
+
+async function verifyWorkspaceDeleted(
+  client: any,
+  path: string,
+): Promise<Record<string, unknown>> {
+  try {
+    await client.accounts.containers.workspaces.get({ path });
+    return {
+      performed: true,
+      expected: "NOT_FOUND_AFTER_CREATE_VERSION",
+      observed: "STILL_READABLE",
+      verified: false,
+    };
+  } catch (error) {
+    const message = errorMessage(error);
+    const notFound = /404|not found/i.test(message);
+    return {
+      performed: true,
+      expected: "NOT_FOUND_AFTER_CREATE_VERSION",
+      observed: notFound ? "NOT_FOUND" : "READ_FAILED",
+      verified: notFound,
+      warning: notFound ? null : message,
+    };
+  }
 }
 
 export const protectedVersionActions = (
@@ -185,37 +241,27 @@ export const protectedVersionActions = (
 ): void => {
   server.tool(
     "gtm_create_version_preflight",
-    "Validate and snapshot creation of a GTM container version from a workspace. This never publishes the version.",
+    "Validate and snapshot creation of a GTM container version. Successful creation deletes the source workspace but never publishes the version.",
     VersionInputSchema,
-    async ({
-      stage,
-      accountId,
-      containerId,
-      workspaceId,
-      name,
-      notes,
-    }: VersionInput) => {
-      log(`Running GTM create-version preflight for stage '${stage}'`);
+    async (input: VersionInput) => {
+      log(`Running GTM create-version preflight for stage '${input.stage}'`);
       try {
         const config = getSafetyConfig(env);
-        validateVersionScope(config, accountId, containerId, workspaceId);
-        const client = await getTagManagerClient(props);
-        const plan = await versionPlan(
-          client,
-          stage,
-          accountId,
-          containerId,
-          workspaceId,
-          name,
-          notes,
+        validateVersionScope(
+          config,
+          input.accountId,
+          input.containerId,
+          input.workspaceId,
         );
+        const client = await getTagManagerClient(props);
+        const plan = await buildVersionPlan(client, input);
         const operationHash = await sha256Hex(plan);
-        const scope = versionScope(stage, accountId, containerId, workspaceId);
+        const scope = versionScope(input);
         const receipt = await createConfirmation(
           config,
           "CREATE_VERSION",
           operationHash,
-          stage,
+          input.stage,
           scope,
         );
 
@@ -231,19 +277,25 @@ export const protectedVersionActions = (
                   executed: false,
                   execution_status: "NOT_EXECUTED",
                   action: "createVersion",
+                  deletes_workspace: true,
                   publishes_container: false,
                   operation_hash: operationHash,
                   operation_hash_version: 1,
                   normalized_plan: plan,
                   required_confirmation: receipt.token,
                   confirmation_expires_at: receipt.expiresAt,
-                  required_human_confirmation: `EXECUTAR ETAPA ${stage} | HASH ${operationHash}`,
+                  required_human_confirmation: `EXECUTAR ETAPA ${input.stage} | HASH ${operationHash}`,
                   validation_receipt: {
                     expires_at: receipt.expiresAt,
                     replay_protection: replayProtectionDescription(),
                     globally_single_use: false,
                   },
                   operation_scope: scope,
+                  verification: {
+                    workspace_read_performed: true,
+                    workspace_status_read_performed: true,
+                    mutation_dispatched: false,
+                  },
                   errors: [],
                 },
                 null,
@@ -257,7 +309,7 @@ export const protectedVersionActions = (
           "CREATE_VERSION_PREFLIGHT_FAILED",
           errorMessage(error),
           {
-            stage,
+            stage: input.stage,
             executed: false,
             mutation_dispatched: false,
           },
@@ -268,18 +320,10 @@ export const protectedVersionActions = (
 
   server.tool(
     "gtm_create_version_execute",
-    "Create the exactly validated GTM container version. This tool never publishes the version.",
+    "Create the exactly validated GTM container version, verify the new version, and verify deletion of the source workspace. This tool never publishes.",
     VersionExecuteInputSchema,
-    async ({
-      stage,
-      accountId,
-      containerId,
-      workspaceId,
-      name,
-      notes,
-      confirmation,
-    }: VersionExecuteInput) => {
-      log(`Running GTM create-version execution for stage '${stage}'`);
+    async ({ confirmation, ...input }: VersionExecuteInput) => {
+      log(`Running GTM create-version execution for stage '${input.stage}'`);
       let dispatchStarted = false;
       let apiResponseReceived = false;
       let operationHash: string | null = null;
@@ -287,24 +331,21 @@ export const protectedVersionActions = (
 
       try {
         const config = getSafetyConfig(env);
-        validateVersionScope(config, accountId, containerId, workspaceId);
-        const client = await getTagManagerClient(props);
-        const plan = await versionPlan(
-          client,
-          stage,
-          accountId,
-          containerId,
-          workspaceId,
-          name,
-          notes,
+        validateVersionScope(
+          config,
+          input.accountId,
+          input.containerId,
+          input.workspaceId,
         );
+        const client = await getTagManagerClient(props);
+        const plan = await buildVersionPlan(client, input);
         operationHash = await sha256Hex(plan);
         const verifiedConfirmation = await verifyConfirmation(
           config,
           confirmation,
           "CREATE_VERSION",
           operationHash,
-          stage,
+          input.stage,
         );
         confirmationFingerprint = verifiedConfirmation.fingerprint;
         registerConfirmationBeforeApiCall(confirmationFingerprint);
@@ -312,12 +353,11 @@ export const protectedVersionActions = (
         dispatchStarted = true;
         let response: any;
         try {
-          response = await client.accounts.containers.workspaces.create_version(
-            {
+          response =
+            await client.accounts.containers.workspaces.create_version({
               path: plan.workspacePath,
               requestBody: plan.requestBody,
-            },
-          );
+            });
           apiResponseReceived = true;
         } catch (error) {
           const classification = classifyExecutionError(error);
@@ -325,7 +365,7 @@ export const protectedVersionActions = (
             classification.errorType,
             errorMessage(error),
             {
-              stage,
+              stage: input.stage,
               mode: "EXECUTE",
               validation_status: "PRIOR_VALIDATION_VERIFIED",
               execution_attempted: true,
@@ -346,36 +386,23 @@ export const protectedVersionActions = (
         }
 
         const containerVersion = response.data?.containerVersion || null;
-        const compilerError = Boolean(response.data?.compilerError);
         const versionId = containerVersion?.containerVersionId || null;
-        let verification: Record<string, unknown> = {
-          performed: false,
-          verified: false,
-        };
+        const compilerError = Boolean(response.data?.compilerError);
+        const [versionVerification, workspaceDeletionVerification] =
+          await Promise.all([
+            verifyCreatedVersion(
+              client,
+              input.accountId,
+              input.containerId,
+              versionId,
+            ),
+            verifyWorkspaceDeleted(client, plan.workspacePath),
+          ]);
 
-        if (versionId) {
-          const versionPath = `accounts/${accountId}/containers/${containerId}/versions/${versionId}`;
-          try {
-            const readBack = await client.accounts.containers.versions.get({
-              path: versionPath,
-            });
-            verification = {
-              performed: true,
-              verified: true,
-              resource_name: versionPath,
-              fingerprint: readBack.data?.fingerprint || null,
-              published: false,
-            };
-          } catch (error) {
-            verification = {
-              performed: true,
-              verified: false,
-              resource_name: versionPath,
-              warning: errorMessage(error),
-              published: false,
-            };
-          }
-        }
+        const verified =
+          !compilerError &&
+          versionVerification.verified === true &&
+          workspaceDeletionVerification.verified === true;
 
         return {
           content: [
@@ -387,10 +414,9 @@ export const protectedVersionActions = (
                   validation_status: "PRIOR_VALIDATION_VERIFIED",
                   execution_attempted: true,
                   executed: true,
-                  execution_status:
-                    compilerError || verification.verified !== true
-                      ? "SUCCEEDED_WITH_VERIFICATION_WARNINGS"
-                      : "SUCCEEDED",
+                  execution_status: verified
+                    ? "SUCCEEDED"
+                    : "SUCCEEDED_WITH_VERIFICATION_WARNINGS",
                   confirmation_verified: true,
                   confirmation_registered_before_api_call: true,
                   confirmation_token_fingerprint: confirmationFingerprint,
@@ -401,9 +427,13 @@ export const protectedVersionActions = (
                   api_response_received: true,
                   container_version_id: versionId,
                   compiler_error: compilerError,
+                  deletes_workspace: true,
                   published: false,
                   response: response.data,
-                  post_execution_verification: verification,
+                  post_execution_verification: {
+                    version: versionVerification,
+                    workspace_deletion: workspaceDeletionVerification,
+                  },
                   errors: [],
                 },
                 null,
@@ -420,7 +450,7 @@ export const protectedVersionActions = (
               : "TRANSPORT_OR_CONNECTOR_ERROR",
             errorMessage(error),
             {
-              stage,
+              stage: input.stage,
               mode: "EXECUTE",
               execution_attempted: true,
               executed: apiResponseReceived,
@@ -444,7 +474,7 @@ export const protectedVersionActions = (
           "CREATE_VERSION_EXECUTION_BLOCKED",
           errorMessage(error),
           {
-            stage,
+            stage: input.stage,
             mode: "EXECUTE",
             execution_attempted: false,
             executed: false,
