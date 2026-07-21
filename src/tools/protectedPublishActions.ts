@@ -45,6 +45,8 @@ interface PublishPlan {
   targetDescription: string | null;
   liveVersionId: string | null;
   liveFingerprint: string | null;
+  latestVersionId: string;
+  targetIsLatest: boolean;
 }
 
 const PublishExecuteInputSchema = {
@@ -98,20 +100,22 @@ function versionPath(
 
 async function publishPlan(
   client: any,
+  config: SafetyConfig,
   stage: string,
   accountId: string,
   containerId: string,
   containerVersionId: string,
 ): Promise<PublishPlan> {
   const targetPath = versionPath(accountId, containerId, containerVersionId);
-  const [targetResponse, liveResponse] = await Promise.all([
+  const parent = `accounts/${accountId}/containers/${containerId}`;
+  const [targetResponse, liveResponse, latestResponse] = await Promise.all([
     client.accounts.containers.versions.get({ path: targetPath }),
-    client.accounts.containers.versions.live({
-      parent: `accounts/${accountId}/containers/${containerId}`,
-    }),
+    client.accounts.containers.versions.live({ parent }),
+    client.accounts.containers.version_headers.latest({ parent }),
   ]);
   const target = targetResponse.data || {};
   const live = liveResponse.data || {};
+  const latest = latestResponse.data || {};
 
   if (target.containerVersionId !== containerVersionId) {
     throw new Error("TARGET_VERSION_ID_MISMATCH");
@@ -121,6 +125,20 @@ async function publishPlan(
   }
   if (live.containerVersionId === containerVersionId) {
     throw new Error("TARGET_VERSION_ALREADY_LIVE");
+  }
+
+  const latestVersionId =
+    typeof latest.containerVersionId === "string"
+      ? latest.containerVersionId
+      : null;
+  if (!latestVersionId) {
+    throw new Error("LATEST_VERSION_ID_MISSING");
+  }
+  const targetIsLatest = latestVersionId === containerVersionId;
+  if (!targetIsLatest && !config.allowPublishNonLatest) {
+    throw new Error(
+      `NON_LATEST_PUBLICATION_BLOCKED:${containerVersionId}:${latestVersionId}:GTM_ALLOW_PUBLISH_NON_LATEST`,
+    );
   }
 
   return {
@@ -141,6 +159,8 @@ async function publishPlan(
         : null,
     liveFingerprint:
       typeof live.fingerprint === "string" ? live.fingerprint : null,
+    latestVersionId,
+    targetIsLatest,
   };
 }
 
@@ -179,6 +199,7 @@ export const protectedPublishActions = (
         const client = await getTagManagerClient(props);
         const plan = await publishPlan(
           client,
+          config,
           stage,
           accountId,
           containerId,
@@ -264,6 +285,7 @@ export const protectedPublishActions = (
         const client = await getTagManagerClient(props);
         const plan = await publishPlan(
           client,
+          config,
           stage,
           accountId,
           containerId,
