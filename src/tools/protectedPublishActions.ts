@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { McpAgentToolParamsModel } from "../models/McpAgentModel";
+import { classifyExecutionError } from "../protectedMutation/execution";
 import {
   ConfirmationScope,
   SafetyConfig,
@@ -165,7 +166,12 @@ export const protectedPublishActions = (
     "gtm_publish_preflight",
     "Validate a GTM container version publication and snapshot both target and current live versions. No publication is performed.",
     PublishInputSchema,
-    async ({ stage, accountId, containerId, containerVersionId }: PublishInput) => {
+    async ({
+      stage,
+      accountId,
+      containerId,
+      containerVersionId,
+    }: PublishInput) => {
       log(`Running GTM publish preflight for stage '${stage}'`);
       try {
         const config = getSafetyConfig(env);
@@ -221,12 +227,16 @@ export const protectedPublishActions = (
           ],
         };
       } catch (error) {
-        return structuredError("PUBLISH_PREFLIGHT_FAILED", errorMessage(error), {
-          stage,
-          containerVersionId,
-          executed: false,
-          publication_dispatched: false,
-        });
+        return structuredError(
+          "PUBLISH_PREFLIGHT_FAILED",
+          errorMessage(error),
+          {
+            stage,
+            containerVersionId,
+            executed: false,
+            publication_dispatched: false,
+          },
+        );
       }
     },
   );
@@ -243,6 +253,11 @@ export const protectedPublishActions = (
       confirmation,
     }: PublishExecuteInput) => {
       log(`Running GTM publish execution for stage '${stage}'`);
+      let dispatchStarted = false;
+      let apiResponseReceived = false;
+      let operationHash: string | null = null;
+      let confirmationFingerprint: string | null = null;
+
       try {
         const config = getSafetyConfig(env);
         validatePublishScope(config, accountId, containerId);
@@ -254,7 +269,7 @@ export const protectedPublishActions = (
           containerId,
           containerVersionId,
         );
-        const operationHash = await sha256Hex(plan);
+        operationHash = await sha256Hex(plan);
         const verifiedConfirmation = await verifyConfirmation(
           config,
           confirmation,
@@ -262,13 +277,41 @@ export const protectedPublishActions = (
           operationHash,
           stage,
         );
-        registerConfirmationBeforeApiCall(verifiedConfirmation.fingerprint);
+        confirmationFingerprint = verifiedConfirmation.fingerprint;
+        registerConfirmationBeforeApiCall(confirmationFingerprint);
 
-        const response = await client.accounts.containers.versions.publish({
-          path: plan.targetPath,
-          fingerprint: plan.targetFingerprint,
-        });
+        dispatchStarted = true;
+        let response: any;
+        try {
+          response = await client.accounts.containers.versions.publish({
+            path: plan.targetPath,
+            fingerprint: plan.targetFingerprint,
+          });
+          apiResponseReceived = true;
+        } catch (error) {
+          const classification = classifyExecutionError(error);
+          return structuredError(classification.errorType, errorMessage(error), {
+            stage,
+            containerVersionId,
+            mode: "PUBLISH",
+            validation_status: "PRIOR_VALIDATION_VERIFIED",
+            execution_attempted: true,
+            executed: false,
+            execution_status: classification.executionMayHaveCompleted
+              ? "UNKNOWN"
+              : "FAILED",
+            execution_may_have_completed:
+              classification.executionMayHaveCompleted,
+            publication_dispatched: true,
+            api_response_received: false,
+            confirmation_verified: true,
+            confirmation_registered_before_api_call: true,
+            confirmation_token_fingerprint: confirmationFingerprint,
+            operation_hash: operationHash,
+          });
+        }
 
+        const compilerError = Boolean(response.data?.compilerError);
         let verification: Record<string, unknown>;
         try {
           const liveResponse = await client.accounts.containers.versions.live({
@@ -301,15 +344,17 @@ export const protectedPublishActions = (
                   execution_attempted: true,
                   executed: true,
                   execution_status:
-                    verification.verified === true
-                      ? "SUCCEEDED"
-                      : "SUCCEEDED_WITH_VERIFICATION_WARNINGS",
+                    compilerError || verification.verified !== true
+                      ? "SUCCEEDED_WITH_VERIFICATION_WARNINGS"
+                      : "SUCCEEDED",
                   confirmation_verified: true,
                   confirmation_registered_before_api_call: true,
-                  confirmation_token_fingerprint:
-                    verifiedConfirmation.fingerprint,
+                  confirmation_token_fingerprint: confirmationFingerprint,
                   operation_hash: operationHash,
                   operation_hash_version: 1,
+                  publication_dispatched: true,
+                  api_response_received: true,
+                  compiler_error: compilerError,
                   published_container_version_id: containerVersionId,
                   previous_live_version_id: plan.liveVersionId,
                   response: response.data,
@@ -323,14 +368,50 @@ export const protectedPublishActions = (
           ],
         };
       } catch (error) {
-        return structuredError("PUBLISH_EXECUTION_BLOCKED", errorMessage(error), {
-          stage,
-          containerVersionId,
-          mode: "PUBLISH",
-          execution_attempted: false,
-          executed: false,
-          execution_status: "BLOCKED_BEFORE_API_CALL",
-        });
+        if (dispatchStarted) {
+          return structuredError(
+            apiResponseReceived
+              ? "CONNECTOR_POST_RESPONSE_ERROR"
+              : "TRANSPORT_OR_CONNECTOR_ERROR",
+            errorMessage(error),
+            {
+              stage,
+              containerVersionId,
+              mode: "PUBLISH",
+              execution_attempted: true,
+              executed: apiResponseReceived,
+              execution_status: apiResponseReceived
+                ? "SUCCEEDED_WITH_VERIFICATION_WARNINGS"
+                : "UNKNOWN",
+              execution_may_have_completed: !apiResponseReceived,
+              publication_dispatched: true,
+              api_response_received: apiResponseReceived,
+              confirmation_verified: Boolean(confirmationFingerprint),
+              confirmation_registered_before_api_call: Boolean(
+                confirmationFingerprint,
+              ),
+              confirmation_token_fingerprint: confirmationFingerprint,
+              operation_hash: operationHash,
+            },
+          );
+        }
+
+        return structuredError(
+          "PUBLISH_EXECUTION_BLOCKED",
+          errorMessage(error),
+          {
+            stage,
+            containerVersionId,
+            mode: "PUBLISH",
+            execution_attempted: false,
+            executed: false,
+            execution_status: "BLOCKED_BEFORE_API_CALL",
+            publication_dispatched: false,
+            api_response_received: false,
+            confirmation_registered_before_api_call: false,
+            operation_hash: operationHash,
+          },
+        );
       }
     },
   );
