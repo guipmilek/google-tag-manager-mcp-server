@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/safety/**/*.ts",
+    "worker-configuration.d.ts",
+    "global.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
