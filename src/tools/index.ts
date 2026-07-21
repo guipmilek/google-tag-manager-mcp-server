@@ -6,7 +6,11 @@ import { destinationActions } from "./destinationActions";
 import { environmentActions } from "./environmentActions";
 import { folderActions } from "./folderActions";
 import { gtagConfigActions } from "./gtagConfigActions";
+import { protectedMutationActions } from "./protectedMutationActions";
+import { protectedPublishActions } from "./protectedPublishActions";
+import { protectedVersionActions } from "./protectedVersionActions";
 import { removeMCPServerData } from "./removeMCPServerData";
+import { safetyActions } from "./safetyActions";
 import { tagActions } from "./tagActions";
 import { templateActions } from "./templateActions";
 import { transformationActions } from "./transformationActions";
@@ -19,6 +23,10 @@ import { workspaceActions } from "./workspaceActions";
 import { zoneActions } from "./zoneActions";
 
 export const tools = [
+  safetyActions,
+  protectedMutationActions,
+  protectedVersionActions,
+  protectedPublishActions,
   accountActions,
   builtInVariableActions,
   clientActions,
