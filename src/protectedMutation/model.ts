@@ -39,6 +39,7 @@ const payloadSchemas = {
     workspaceId: true,
     tagId: true,
     fingerprint: true,
+    tagManagerUrl: true,
   }),
   trigger: TriggerSchema.omit({
     accountId: true,
@@ -46,6 +47,7 @@ const payloadSchemas = {
     workspaceId: true,
     triggerId: true,
     fingerprint: true,
+    tagManagerUrl: true,
   }),
   variable: VariableSchema.omit({
     accountId: true,
@@ -53,6 +55,7 @@ const payloadSchemas = {
     workspaceId: true,
     variableId: true,
     fingerprint: true,
+    tagManagerUrl: true,
   }),
   folder: FolderSchema.omit({
     accountId: true,
@@ -60,6 +63,7 @@ const payloadSchemas = {
     workspaceId: true,
     folderId: true,
     fingerprint: true,
+    tagManagerUrl: true,
   }),
 } as const;
 
