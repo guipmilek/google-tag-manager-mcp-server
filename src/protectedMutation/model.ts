@@ -34,7 +34,7 @@ export const RESOURCE_METADATA: Record<
   folder: { plural: "folders", idField: "folderId" },
 };
 
-const payloadSchemas = {
+const writablePayloadSchemas = {
   tag: TagSchema.omit({
     accountId: true,
     containerId: true,
@@ -42,7 +42,7 @@ const payloadSchemas = {
     tagId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }).strict(),
+  }),
   trigger: TriggerSchema.omit({
     accountId: true,
     containerId: true,
@@ -50,7 +50,7 @@ const payloadSchemas = {
     triggerId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }).strict(),
+  }),
   variable: VariableSchema.omit({
     accountId: true,
     containerId: true,
@@ -58,7 +58,7 @@ const payloadSchemas = {
     variableId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }).strict(),
+  }),
   folder: FolderSchema.omit({
     accountId: true,
     containerId: true,
@@ -66,19 +66,61 @@ const payloadSchemas = {
     folderId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }).strict(),
+  }),
 } as const;
 
-export function parsePayload(
+const strictPayloadSchemas = {
+  tag: writablePayloadSchemas.tag.strict(),
+  trigger: writablePayloadSchemas.trigger.strict(),
+  variable: writablePayloadSchemas.variable.strict(),
+  folder: writablePayloadSchemas.folder.strict(),
+} as const;
+
+function requireCreateFields(
+  resource: ProtectedWorkspaceResource,
+  data: JsonObject,
+): void {
+  if (typeof data.name !== "string" || !data.name.trim()) {
+    throw new Error(`CREATE_REQUIRED_FIELD_MISSING:${resource}:name`);
+  }
+  if (
+    resource !== "folder" &&
+    (typeof data.type !== "string" || !data.type.trim())
+  ) {
+    throw new Error(`CREATE_REQUIRED_FIELD_MISSING:${resource}:type`);
+  }
+}
+
+export function parseCreatePayload(
   resource: ProtectedWorkspaceResource,
   data: JsonObject | undefined,
 ): JsonObject {
   if (!data) {
-    throw new Error(
-      `data is required for ${resource} create/update operations`,
-    );
+    throw new Error(`data is required for ${resource} create operations`);
   }
-  return payloadSchemas[resource].parse(data) as JsonObject;
+  const parsed = strictPayloadSchemas[resource].parse(data) as JsonObject;
+  requireCreateFields(resource, parsed);
+  return parsed;
+}
+
+export function mergeUpdatePayload(
+  resource: ProtectedWorkspaceResource,
+  currentResource: JsonObject,
+  requestedData: JsonObject | undefined,
+): JsonObject {
+  if (!requestedData) {
+    throw new Error(`data is required for ${resource} update operations`);
+  }
+  const requested = strictPayloadSchemas[resource].parse(
+    requestedData,
+  ) as JsonObject;
+  const currentWritable = writablePayloadSchemas[resource].parse(
+    currentResource,
+  ) as JsonObject;
+  return strictPayloadSchemas[resource].parse({
+    ...currentWritable,
+    ...requested,
+  }) as JsonObject;
 }
 
 export function workspacePath(operation: RequestedMutationOperation): string {
