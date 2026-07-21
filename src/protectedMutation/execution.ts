@@ -1,6 +1,7 @@
 import {
   JsonObject,
   NormalizedMutationOperation,
+  canonicalJson,
   errorMessage,
 } from "../safety";
 import { getCollection, RESOURCE_METADATA } from "./model";
@@ -77,6 +78,16 @@ export async function executeOne(
   };
 }
 
+function mismatchedExpectedFields(
+  expected: JsonObject,
+  observed: JsonObject,
+): string[] {
+  return Object.entries(expected)
+    .filter(([key, value]) => canonicalJson(observed[key]) !== canonicalJson(value))
+    .map(([key]) => key)
+    .sort();
+}
+
 export async function verifyCompletedOperation(
   client: any,
   operation: NormalizedMutationOperation,
@@ -108,15 +119,27 @@ export async function verifyCompletedOperation(
 
   try {
     const response = await collection.get({ path: resourceName });
+    const observed = (response.data || {}) as JsonObject;
+    const expectedData = operation.data || {};
+    const comparedFields =
+      operation.action === "create" || operation.action === "update"
+        ? Object.keys(expectedData).sort()
+        : [];
+    const mismatchedFields =
+      comparedFields.length > 0
+        ? mismatchedExpectedFields(expectedData, observed)
+        : [];
+    const verified = mismatchedFields.length === 0;
+
     return {
       resource_name: resourceName,
-      expected: "READABLE",
+      expected: comparedFields.length > 0 ? "READABLE_WITH_MATCHING_FIELDS" : "READABLE",
       observed: "READABLE",
-      verified: true,
+      verified,
       fingerprint:
-        typeof response.data?.fingerprint === "string"
-          ? response.data.fingerprint
-          : null,
+        typeof observed.fingerprint === "string" ? observed.fingerprint : null,
+      compared_fields: comparedFields,
+      mismatched_fields: mismatchedFields,
     };
   } catch (error) {
     return {
