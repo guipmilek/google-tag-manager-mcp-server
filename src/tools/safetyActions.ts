@@ -50,6 +50,7 @@ export const safetyActions = (
                   allow_create_version: config.allowCreateVersion,
                   allow_set_latest: config.allowSetLatest,
                   allow_publish: config.allowPublish,
+                  allow_publish_non_latest: config.allowPublishNonLatest,
                   allow_undelete: config.allowUndelete,
                 },
                 allowlists: {
@@ -68,6 +69,7 @@ export const safetyActions = (
                   replay_protection: replayProtectionDescription(),
                   globally_single_use: false,
                 },
+                publication_requires_latest_version_by_default: true,
                 publication_requires_separate_confirmation: true,
                 publication_confirmation_format:
                   "PUBLICAR VERSÃO GTM <VERSION_ID> | HASH <OPERATION_HASH>",
