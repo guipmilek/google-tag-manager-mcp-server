@@ -1,10 +1,10 @@
 {
   "name": "google-tag-manager-mcp-server",
   "version": "3.0.6",
-  "description": "MCP server for Google Tag Manager",
+  "description": "Protected MCP server for Google Tag Manager",
   "license": "Apache-2.0",
   "author": "stape-io",
-  "homepage": "https://github.com/stape-io/google-tag-manager-mcp-server",
+  "homepage": "https://github.com/guipmilek/google-tag-manager-mcp-server",
   "main": "dist/index.js",
   "bin": {
     "google-tag-manager-mcp-server": "./dist/index.js"
@@ -13,13 +13,16 @@
     "mcp",
     "modelcontextprotocol",
     "gtm",
-    "stape"
+    "google-tag-manager",
+    "safety",
+    "preflight"
   ],
   "scripts": {
     "build": "tsc && chmod 755 dist/index.js",
     "postinstall": "npm run build",
     "lint": "eslint --ext .ts src",
     "lint:fix": "eslint --ext .ts src --fix",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/safety/*.test.js",
     "prepublish": "npm run build",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -46,7 +49,7 @@
     "eslint-plugin-prettier": "^5.2.6",
     "prettier": "^3.5.3",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
+    "ts-node-dev": "^10.9.2",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.30.1",
     "wrangler": "^4.16.0"
