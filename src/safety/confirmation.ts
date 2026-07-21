@@ -123,7 +123,7 @@ export async function verifyConfirmation(
     new TextEncoder().encode(payload),
   );
   if (!valid) {
-    throw new Error("INVALID_CONFIRMIRMATION");
+    throw new Error("INVALID_CONFIRMATION");
   }
 
   const claims = JSON.parse(
