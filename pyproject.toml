@@ -1,0 +1,21 @@
+[project]
+name = "google-tag-manager-mcp-horizon"
+version = "0.1.0"
+description = "Protected Google Tag Manager MCP server for Prefect Horizon"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+readme = "README.md"
+dependencies = [
+    "fastmcp==3.2.0",
+    "google-api-python-client>=2.169.0,<3",
+    "google-auth~=2.40",
+    "mcp>=1.24.0",
+]
+keywords = ["google tag manager", "gtm", "mcp", "horizon", "fastmcp"]
+
+[build-system]
+requires = ["setuptools>=82.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gtm_mcp*"]
