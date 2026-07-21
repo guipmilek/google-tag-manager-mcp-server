@@ -51,6 +51,8 @@ Workflow:
 
 Preflight performs Google API reads but does not mutate GTM. It captures workspace and resource fingerprints, validates the resource payload, enforces allowlists and gates, and checks duplicate names for creates.
 
+GTM resource update endpoints use full-resource `PUT` semantics. Protected updates therefore read the current resource, remove output-only fields, merge the requested writable changes, validate the complete body, and bind that resulting body to the confirmation hash. Omitted writable fields are preserved.
+
 Batches are intentionally non-atomic and use:
 
 ```text
@@ -61,19 +63,21 @@ The maximum supported batch size is 10 operations.
 
 ### Separate version creation
 
-Creating a container version does not publish it.
+Creating a container version does not publish it, but the GTM API removes the source workspace after successfully creating the version.
 
 1. `gtm_create_version_preflight`
-2. `gtm_create_version_execute`
+2. Review the workspace fingerprint, change count, conflicts, and the explicit `deletes_workspace` effect.
+3. `gtm_create_version_execute`
+4. Verify that the version is readable and that the source workspace is no longer readable.
 
-The preflight reads the workspace and status, blocks unresolved merge conflicts, snapshots the workspace fingerprint, and binds the signed confirmation to that exact state.
+The preflight reads the workspace and status, blocks unresolved merge conflicts and empty workspaces, snapshots the workspace fingerprint, and binds the signed confirmation to that exact state.
 
 ### Separate publication approval
 
 Publication cannot be authorized by a workspace-mutation confirmation or by a create-version confirmation.
 
 1. `gtm_publish_preflight`
-2. Review the target version and current live version snapshots.
+2. Review the target version, current live version, and latest version snapshots.
 3. Approve with:
 
 ```text
@@ -82,6 +86,8 @@ PUBLICAR VERSÃO GTM <VERSION_ID> | HASH <OPERATION_HASH>
 
 4. `gtm_publish_execute`
 5. The live version is read back and compared to the requested version.
+
+By default, only the current latest container version may be published. Publishing an older version is blocked unless the dedicated `GTM_ALLOW_PUBLISH_NON_LATEST` gate is explicitly enabled for a separate rollback stage.
 
 ## Protected tools
 
@@ -131,6 +137,7 @@ GTM_ALLOW_REVERT=false
 GTM_ALLOW_CREATE_VERSION=false
 GTM_ALLOW_SET_LATEST=false
 GTM_ALLOW_PUBLISH=false
+GTM_ALLOW_PUBLISH_NON_LATEST=false
 GTM_ALLOW_UNDELETE=false
 
 GTM_ALLOWED_ACCOUNT_IDS=
@@ -157,6 +164,7 @@ GTM_ALLOW_REVERT=false
 GTM_ALLOW_CREATE_VERSION=false
 GTM_ALLOW_SET_LATEST=false
 GTM_ALLOW_PUBLISH=false
+GTM_ALLOW_PUBLISH_NON_LATEST=false
 GTM_ALLOW_UNDELETE=false
 
 GTM_ALLOWED_ACCOUNT_IDS=<authorized-account-id>
@@ -241,8 +249,10 @@ npm run deploy
 ## Security notes
 
 - Never commit OAuth client secrets, confirmation secrets, refresh tokens, or access tokens.
-- Keep delete, revert, set-latest, undelete, and publish gates disabled except for a dedicated validated stage.
+- Keep delete, revert, set-latest, undelete, publish, and non-latest publication gates disabled except for a dedicated validated stage.
 - A successful preflight is connector validation, not a Google Tag Manager API dry run.
 - Creating or editing workspace entities does not publish them.
+- Creating a container version deletes the source workspace and must be treated as a distinct destructive transition.
 - Publication always requires a separate target-version snapshot and confirmation.
+- Publishing a non-latest version is a rollback operation and requires its own gate and validation.
 - Do not use the unsafe legacy bypass as a permanent migration path.
