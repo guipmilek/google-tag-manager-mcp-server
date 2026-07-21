@@ -1,0 +1,63 @@
+name: Patch latest-version publication guard
+
+on:
+  push:
+    branches:
+      - feat/protected-gtm-mutations
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/protected-gtm-mutations
+          fetch-depth: 0
+
+      - name: Apply guarded publication patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/tools/protectedPublishActions.ts")
+          text = path.read_text()
+
+          text = text.replace(
+              '  liveVersionId: string | null;\n  liveFingerprint: string | null;\n}',
+              '  liveVersionId: string | null;\n  liveFingerprint: string | null;\n  latestVersionId: string;\n  targetIsLatest: boolean;\n}',
+          )
+          text = text.replace(
+              'async function publishPlan(\n  client: any,\n  stage: string,',
+              'async function publishPlan(\n  client: any,\n  config: SafetyConfig,\n  stage: string,',
+          )
+          text = text.replace(
+              '  const [targetResponse, liveResponse] = await Promise.all([\n    client.accounts.containers.versions.get({ path: targetPath }),\n    client.accounts.containers.versions.live({\n      parent: `accounts/${accountId}/containers/${containerId}`,\n    }),\n  ]);\n  const target = targetResponse.data || {};\n  const live = liveResponse.data || {};',
+              '  const parent = `accounts/${accountId}/containers/${containerId}`;\n  const [targetResponse, liveResponse, latestResponse] = await Promise.all([\n    client.accounts.containers.versions.get({ path: targetPath }),\n    client.accounts.containers.versions.live({ parent }),\n    client.accounts.containers.version_headers.latest({ parent }),\n  ]);\n  const target = targetResponse.data || {};\n  const live = liveResponse.data || {};\n  const latest = latestResponse.data || {};',
+          )
+          text = text.replace(
+              '  if (live.containerVersionId === containerVersionId) {\n    throw new Error("TARGET_VERSION_ALREADY_LIVE");\n  }\n\n  return {',
+              '  if (live.containerVersionId === containerVersionId) {\n    throw new Error("TARGET_VERSION_ALREADY_LIVE");\n  }\n\n  const latestVersionId =\n    typeof latest.containerVersionId === "string"\n      ? latest.containerVersionId\n      : null;\n  if (!latestVersionId) {\n    throw new Error("LATEST_VERSION_ID_MISSING");\n  }\n  const targetIsLatest = latestVersionId === containerVersionId;\n  if (!targetIsLatest && !config.allowPublishNonLatest) {\n    throw new Error(\n      `NON_LATEST_PUBLICATION_BLOCKED:${containerVersionId}:${latestVersionId}:GTM_ALLOW_PUBLISH_NON_LATEST`,\n    );\n  }\n\n  return {',
+          )
+          text = text.replace(
+              '    liveFingerprint:\n      typeof live.fingerprint === "string" ? live.fingerprint : null,\n  };',
+              '    liveFingerprint:\n      typeof live.fingerprint === "string" ? live.fingerprint : null,\n    latestVersionId,\n    targetIsLatest,\n  };',
+          )
+          text = text.replace(
+              '        const plan = await publishPlan(\n          client,\n          stage,',
+              '        const plan = await publishPlan(\n          client,\n          config,\n          stage,',
+          )
+
+          path.write_text(text)
+
+      - name: Format and commit
+        run: |
+          npm ci --ignore-scripts
+          npx eslint --fix src/tools/protectedPublishActions.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/tools/protectedPublishActions.ts
+          git commit -m "feat(gtm): block non-latest publication by default"
+          git push origin HEAD:feat/protected-gtm-mutations
