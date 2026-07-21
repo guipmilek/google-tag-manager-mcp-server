@@ -63,6 +63,7 @@ export interface SafetyConfig {
   allowCreateVersion: boolean;
   allowSetLatest: boolean;
   allowPublish: boolean;
+  allowPublishNonLatest: boolean;
   allowUndelete: boolean;
   allowedAccountIds: Set<string>;
   allowedContainerIds: Set<string>;
