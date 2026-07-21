@@ -61,6 +61,11 @@ export function getSafetyConfig(env: Env): SafetyConfig {
     allowCreateVersion: envBoolean(env, "GTM_ALLOW_CREATE_VERSION", false),
     allowSetLatest: envBoolean(env, "GTM_ALLOW_SET_LATEST", false),
     allowPublish: envBoolean(env, "GTM_ALLOW_PUBLISH", false),
+    allowPublishNonLatest: envBoolean(
+      env,
+      "GTM_ALLOW_PUBLISH_NON_LATEST",
+      false,
+    ),
     allowUndelete: envBoolean(env, "GTM_ALLOW_UNDELETE", false),
     allowedAccountIds: envSet(env, "GTM_ALLOWED_ACCOUNT_IDS"),
     allowedContainerIds: envSet(env, "GTM_ALLOWED_CONTAINER_IDS"),
