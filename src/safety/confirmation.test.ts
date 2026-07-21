@@ -17,6 +17,7 @@ const config: SafetyConfig = {
   allowCreateVersion: false,
   allowSetLatest: false,
   allowPublish: false,
+  allowPublishNonLatest: false,
   allowUndelete: false,
   allowedAccountIds: new Set(["1"]),
   allowedContainerIds: new Set(["2"]),
