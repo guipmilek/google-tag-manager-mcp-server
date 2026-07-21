@@ -12,15 +12,17 @@ import {
 export const ResourceSchema = z.enum(["tag", "trigger", "variable", "folder"]);
 export const ActionSchema = z.enum(["create", "update", "remove", "revert"]);
 
-export const OperationSchema = z.object({
-  resource: ResourceSchema,
-  action: ActionSchema,
-  accountId: z.string().min(1),
-  containerId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  resourceId: z.string().min(1).optional(),
-  data: z.record(z.unknown()).optional(),
-});
+export const OperationSchema = z
+  .object({
+    resource: ResourceSchema,
+    action: ActionSchema,
+    accountId: z.string().min(1),
+    containerId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    resourceId: z.string().min(1).optional(),
+    data: z.record(z.unknown()).optional(),
+  })
+  .strict();
 
 export const RESOURCE_METADATA: Record<
   ProtectedWorkspaceResource,
@@ -40,7 +42,7 @@ const payloadSchemas = {
     tagId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }),
+  }).strict(),
   trigger: TriggerSchema.omit({
     accountId: true,
     containerId: true,
@@ -48,7 +50,7 @@ const payloadSchemas = {
     triggerId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }),
+  }).strict(),
   variable: VariableSchema.omit({
     accountId: true,
     containerId: true,
@@ -56,7 +58,7 @@ const payloadSchemas = {
     variableId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }),
+  }).strict(),
   folder: FolderSchema.omit({
     accountId: true,
     containerId: true,
@@ -64,7 +66,7 @@ const payloadSchemas = {
     folderId: true,
     fingerprint: true,
     tagManagerUrl: true,
-  }),
+  }).strict(),
 } as const;
 
 export function parsePayload(
