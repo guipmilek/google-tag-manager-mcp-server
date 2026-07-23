@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
+from gtm_mcp import auth
 from gtm_mcp.safety import (
     CRUD_CONTRACT_VERSION,
     SafetyError,
@@ -18,6 +23,23 @@ from gtm_mcp.tools import TOOL_DEFINITIONS, gtm_batch_operations
 
 
 class SafetyTests(unittest.TestCase):
+    def test_shared_credential_envelope_materializes_adc(self) -> None:
+        credentials = {"type": "service_account", "project_id": "test"}
+        encoded = base64.b64encode(
+            json.dumps({"google_credentials": credentials}).encode()
+        ).decode()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "adc.json"
+            with (
+                patch.dict(
+                    os.environ, {"MCP_CREDENTIALS": encoded}, clear=True
+                ),
+                patch.object(auth, "_ADC_PATH", target),
+            ):
+                configured = auth.configure_deployment_credentials()
+                self.assertEqual(target, configured)
+                self.assertEqual(credentials, json.loads(target.read_text()))
+
     def test_canonical_json_and_hash_are_stable(self) -> None:
         left = {"z": 1, "a": {"d": 4, "b": 2}, "list": [{"y": 2, "x": 1}]}
         right = {"list": [{"x": 1, "y": 2}], "a": {"b": 2, "d": 4}, "z": 1}
@@ -27,9 +49,13 @@ class SafetyTests(unittest.TestCase):
 
     def test_obsolete_gate_environment_is_ignored(self) -> None:
         environment = {
-            "GTM_ALLOWED_ACCOUNT_IDS": "1",
-            "GTM_ALLOWED_CONTAINER_IDS": "2",
-            "GTM_ALLOWED_WORKSPACE_IDS": "3",
+            "MCP_CONFIG": json.dumps(
+                {
+                    "accounts": ["1"],
+                    "containers": ["2"],
+                    "workspaces": ["3"],
+                }
+            ),
             "GTM_MUTATIONS_ENABLED": "false",
             "GTM_ALLOW_DELETE": "false",
             "GTM_CONFIRMATION_SECRET": "unused",

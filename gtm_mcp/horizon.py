@@ -10,7 +10,7 @@ from fastmcp import FastMCP
 from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 
-from .auth import build_fastmcp_auth, configure_adc_from_base64
+from .auth import build_fastmcp_auth, configure_deployment_credentials
 from .safety import SafetyError
 from .tools import TOOL_DEFINITIONS
 
@@ -60,7 +60,7 @@ def _add_tool(
 
 
 def create_horizon_server() -> FastMCP:
-    configure_adc_from_base64()
+    configure_deployment_credentials()
     server = FastMCP(
         "Google Tag Manager MCP Server",
         auth=build_fastmcp_auth(),

@@ -11,7 +11,7 @@ payload, capture concurrency fingerprints, execute immediately unless
 Runtime: Python 3.12
 Framework: FastMCP 3.2.0
 Entrypoint: horizon_server.py:mcp
-Credentials: GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64
+Deployment keys: MCP_CREDENTIALS, MCP_CONFIG
 Contract: direct-crud-v1
 ```
 
@@ -75,36 +75,24 @@ Entrypoint: horizon_server.py:mcp
 Dependencies: pyproject.toml
 ```
 
-Required Google API credentials:
+Horizon uses exactly two deployment keys:
 
 ```env
-GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64=<base64-service-account-json>
-GOOGLE_PROJECT_ID=<google-cloud-project-id>
-GOOGLE_CLOUD_PROJECT=<google-cloud-project-id>
+MCP_CREDENTIALS=<base64-encoded credential envelope>
+MCP_CONFIG={"accounts":["123"],"containers":["456"],"workspaces":["7"],"max_operations":10}
 ```
 
-Required mutation scope:
+The decoded credential envelope has one field:
 
-```env
-GTM_ALLOWED_ACCOUNT_IDS=<comma-separated-numeric-ids>
-GTM_ALLOWED_CONTAINER_IDS=<comma-separated-numeric-ids>
-GTM_ALLOWED_WORKSPACE_IDS=<comma-separated-numeric-ids>
-GTM_MAX_OPERATIONS_PER_REQUEST=10
+```json
+{"google_credentials":{"type":"service_account","project_id":"..."}}
 ```
 
 Empty allowlists fail closed. Legacy variables such as
-`GTM_MUTATIONS_ENABLED`, `GTM_ALLOW_DELETE`, and
-`GTM_CONFIRMATION_SECRET` are intentionally ignored by the Horizon runtime.
-
-Optional FastMCP endpoint authentication:
-
-```env
-GOOGLE_TAG_MANAGER_MCP_OAUTH_CLIENT_ID=<client-id>
-GOOGLE_TAG_MANAGER_MCP_OAUTH_CLIENT_SECRET=<secret>
-GOOGLE_TAG_MANAGER_MCP_BASE_URL=<public-horizon-server-url>
-```
-
-Endpoint authentication and Google API authorization remain separate.
+`GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`, `GTM_ALLOWED_*`, `GTM_MAX_*`,
+`GTM_MUTATIONS_ENABLED`, `GTM_ALLOW_DELETE`, and `GTM_CONFIRMATION_SECRET`
+should be removed from Horizon. Endpoint access control is configured at the
+Horizon gateway and remains separate from Google API authorization.
 
 ## ChatGPT workspace setup
 

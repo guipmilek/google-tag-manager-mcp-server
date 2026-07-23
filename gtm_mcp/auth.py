@@ -9,28 +9,39 @@ from pathlib import Path
 
 from fastmcp.server.auth.providers.google import GoogleProvider
 
+_ADC_PATH = Path("/tmp/google-tag-manager-adc.json")
 
-def configure_adc_from_base64() -> Path | None:
-    encoded = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64", "").strip()
+
+def configure_deployment_credentials() -> Path | None:
+    """Materialize Google ADC from the shared MCP_CREDENTIALS envelope."""
+
+    encoded = os.getenv("MCP_CREDENTIALS", "").strip()
     if not encoded:
         return None
     try:
-        raw = base64.b64decode(encoded, validate=True)
-        parsed = json.loads(raw.decode("utf-8"))
+        envelope = json.loads(
+            base64.b64decode(encoded, validate=True).decode("utf-8")
+        )
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64 is not valid base64 JSON."
+            "MCP_CREDENTIALS must be a base64-encoded JSON object."
         ) from exc
-    if not isinstance(parsed, dict):
+    if not isinstance(envelope, dict):
+        raise RuntimeError("MCP_CREDENTIALS must decode to a JSON object.")
+    credentials = envelope.get("google_credentials")
+    if credentials is None:
+        return None
+    if not isinstance(credentials, dict):
         raise RuntimeError(
-            "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64 must decode to a JSON object."
+            "MCP_CREDENTIALS.google_credentials must be a JSON object."
         )
 
-    credentials_path = Path(
-        os.getenv("GOOGLE_TAG_MANAGER_ADC_PATH", "/tmp/google-tag-manager-adc.json")
-    )
+    raw = json.dumps(credentials, separators=(",", ":")).encode("utf-8")
+    credentials_path = _ADC_PATH
     credentials_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = credentials_path.with_suffix(credentials_path.suffix + ".tmp")
+    temporary_path = credentials_path.with_suffix(
+        credentials_path.suffix + ".tmp"
+    )
     temporary_path.write_bytes(raw)
     temporary_path.chmod(0o600)
     temporary_path.replace(credentials_path)

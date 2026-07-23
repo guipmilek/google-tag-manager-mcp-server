@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 CRUD_CONTRACT_VERSION = "direct-crud-v1"
 OPERATION_HASH_VERSION = 4
+DEPLOY_CONFIG_ENV = "MCP_CONFIG"
 
 
 class SafetyError(ValueError):
@@ -49,34 +50,68 @@ class ScopeConfig:
     max_operations: int
 
 
-def _env_ids(name: str) -> frozenset[str]:
-    values = {
-        item.strip() for item in os.getenv(name, "").split(",") if item.strip()
-    }
-    invalid = sorted(item for item in values if not item.isdigit())
-    if invalid:
+def _deployment_config() -> Mapping[str, Any]:
+    raw = os.getenv(DEPLOY_CONFIG_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
         raise SafetyError(
             "INVALID_ENVIRONMENT_VALUE",
-            f"{name} must contain comma-separated numeric IDs.",
+            f"{DEPLOY_CONFIG_ENV} must be a valid JSON object.",
+        ) from exc
+    if not isinstance(value, dict):
+        raise SafetyError(
+            "INVALID_ENVIRONMENT_VALUE",
+            f"{DEPLOY_CONFIG_ENV} must be a JSON object.",
+        )
+    supported = {"accounts", "containers", "workspaces", "max_operations"}
+    unknown = sorted(set(value) - supported)
+    if unknown:
+        raise SafetyError(
+            "INVALID_ENVIRONMENT_VALUE",
+            f"{DEPLOY_CONFIG_ENV} contains unsupported keys.",
+            {"unsupported_keys": unknown, "supported_keys": sorted(supported)},
+        )
+    return value
+
+
+def _config_ids(config: Mapping[str, Any], key: str) -> frozenset[str]:
+    raw = config.get(key, [])
+    if not isinstance(raw, list):
+        raise SafetyError(
+            "INVALID_ENVIRONMENT_VALUE",
+            f"{DEPLOY_CONFIG_ENV}.{key} must be an array of numeric IDs.",
+        )
+    values = {str(item).strip() for item in raw}
+    invalid = sorted(item for item in values if not item.isdigit())
+    if invalid or any(isinstance(item, bool) for item in raw):
+        raise SafetyError(
+            "INVALID_ENVIRONMENT_VALUE",
+            f"{DEPLOY_CONFIG_ENV}.{key} must be an array of numeric IDs.",
             {"invalid_values": invalid},
         )
     return frozenset(values)
 
 
-def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = int(raw)
-    except ValueError as exc:
+def _config_int(
+    config: Mapping[str, Any],
+    key: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = config.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
         raise SafetyError(
-            "INVALID_ENVIRONMENT_VALUE", f"{name} must be an integer."
-        ) from exc
+            "INVALID_ENVIRONMENT_VALUE",
+            f"{DEPLOY_CONFIG_ENV}.{key} must be an integer.",
+        )
     if not minimum <= value <= maximum:
         raise SafetyError(
             "INVALID_ENVIRONMENT_VALUE",
-            f"{name} must be between {minimum} and {maximum}.",
+            f"{DEPLOY_CONFIG_ENV}.{key} must be between {minimum} and {maximum}.",
             {"value": value},
         )
     return value
@@ -85,11 +120,12 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
 def load_scope_config() -> ScopeConfig:
     """Load Horizon scope for every request."""
 
+    config = _deployment_config()
     return ScopeConfig(
-        allowed_account_ids=_env_ids("GTM_ALLOWED_ACCOUNT_IDS"),
-        allowed_container_ids=_env_ids("GTM_ALLOWED_CONTAINER_IDS"),
-        allowed_workspace_ids=_env_ids("GTM_ALLOWED_WORKSPACE_IDS"),
-        max_operations=_env_int("GTM_MAX_OPERATIONS_PER_REQUEST", 10, 1, 10),
+        allowed_account_ids=_config_ids(config, "accounts"),
+        allowed_container_ids=_config_ids(config, "containers"),
+        allowed_workspace_ids=_config_ids(config, "workspaces"),
+        max_operations=_config_int(config, "max_operations", 10, 1, 10),
     )
 
 
@@ -106,17 +142,18 @@ def operation_hash(value: Any) -> str:
 
 
 def require_allowlist(
-    values: frozenset[str], value: str, variable_name: str
+    values: frozenset[str], value: str, config_key: str
 ) -> None:
     if not values:
         raise SafetyError(
-            "ALLOWLIST_NOT_CONFIGURED", f"{variable_name} is not configured."
+            "ALLOWLIST_NOT_CONFIGURED",
+            f"{DEPLOY_CONFIG_ENV}.{config_key} is not configured.",
         )
     if value not in values:
         raise SafetyError(
             "SCOPE_NOT_ALLOWED",
-            f"Value {value} is outside {variable_name}.",
-            {"environment_variable": variable_name, "value": value},
+            f"Value {value} is outside {DEPLOY_CONFIG_ENV}.{config_key}.",
+            {"config_key": config_key, "value": value},
         )
 
 
@@ -127,17 +164,15 @@ def validate_scope(
     container_id: str,
     workspace_id: str | None = None,
 ) -> None:
-    require_allowlist(
-        config.allowed_account_ids, account_id, "GTM_ALLOWED_ACCOUNT_IDS"
-    )
+    require_allowlist(config.allowed_account_ids, account_id, "accounts")
     require_allowlist(
         config.allowed_container_ids,
         container_id,
-        "GTM_ALLOWED_CONTAINER_IDS",
+        "containers",
     )
     if workspace_id is not None:
         require_allowlist(
             config.allowed_workspace_ids,
             workspace_id,
-            "GTM_ALLOWED_WORKSPACE_IDS",
+            "workspaces",
         )
