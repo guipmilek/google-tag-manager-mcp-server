@@ -145,10 +145,7 @@ def require_allowlist(
     values: frozenset[str], value: str, config_key: str
 ) -> None:
     if not values:
-        raise SafetyError(
-            "ALLOWLIST_NOT_CONFIGURED",
-            f"{DEPLOY_CONFIG_ENV}.{config_key} is not configured.",
-        )
+        return
     if value not in values:
         raise SafetyError(
             "SCOPE_NOT_ALLOWED",

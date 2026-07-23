@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, Mock, patch
 from gtm_mcp import auth
 from gtm_mcp.safety import (
     CRUD_CONTRACT_VERSION,
-    SafetyError,
     canonical_json,
     load_scope_config,
     operation_hash,
@@ -70,12 +69,16 @@ class SafetyTests(unittest.TestCase):
             workspace_id="3",
         )
 
-    def test_empty_allowlist_fails_closed(self) -> None:
+    def test_missing_config_allows_all_accessible_resources(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             config = load_scope_config()
-        with self.assertRaises(SafetyError) as context:
-            validate_scope(config, account_id="1", container_id="2")
-        self.assertEqual(context.exception.code, "ALLOWLIST_NOT_CONFIGURED")
+        validate_scope(
+            config,
+            account_id="1",
+            container_id="2",
+            workspace_id="3",
+        )
+        self.assertEqual(config.max_operations, 10)
 
     def test_dry_run_never_calls_mutation_executor(self) -> None:
         normalized = [

@@ -75,10 +75,11 @@ Entrypoint: horizon_server.py:mcp
 Dependencies: pyproject.toml
 ```
 
-Horizon uses exactly two deployment keys:
+Horizon uses at most two deployment keys:
 
 ```env
 MCP_CREDENTIALS=<base64-encoded credential envelope>
+# Optional restriction:
 MCP_CONFIG={"accounts":["123"],"containers":["456"],"workspaces":["7"],"max_operations":10}
 ```
 
@@ -88,7 +89,10 @@ The decoded credential envelope has one field:
 {"google_credentials":{"type":"service_account","project_id":"..."}}
 ```
 
-Empty allowlists fail closed. Legacy variables such as
+`MCP_CONFIG` is optional. Without it, or when its allowlist arrays are absent
+or empty, every GTM account, container, and workspace accessible to the
+credential is allowed and the default batch limit is 10. Supply it only to
+narrow scope or override the limit. Legacy variables such as
 `GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64`, `GTM_ALLOWED_*`, `GTM_MAX_*`,
 `GTM_MUTATIONS_ENABLED`, `GTM_ALLOW_DELETE`, and `GTM_CONFIRMATION_SECRET`
 should be removed from Horizon. Endpoint access control is configured at the
