@@ -39,6 +39,25 @@ class SafetyTests(unittest.TestCase):
                 self.assertEqual(target, configured)
                 self.assertEqual(credentials, json.loads(target.read_text()))
 
+    def test_legacy_raw_credentials_materialize_adc(self) -> None:
+        credentials = {"type": "service_account", "project_id": "test"}
+        encoded = base64.b64encode(json.dumps(credentials).encode()).decode()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "adc.json"
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GOOGLE_APPLICATION_CREDENTIALS_JSON_BASE64": encoded
+                    },
+                    clear=True,
+                ),
+                patch.object(auth, "_ADC_PATH", target),
+            ):
+                configured = auth.configure_deployment_credentials()
+                self.assertEqual(target, configured)
+                self.assertEqual(credentials, json.loads(target.read_text()))
+
     def test_canonical_json_and_hash_are_stable(self) -> None:
         left = {"z": 1, "a": {"d": 4, "b": 2}, "list": [{"y": 2, "x": 1}]}
         right = {"list": [{"x": 1, "y": 2}], "a": {"b": 2, "d": 4}, "z": 1}
