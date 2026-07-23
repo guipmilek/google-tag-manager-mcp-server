@@ -12,7 +12,7 @@ from mcp.types import ToolAnnotations
 
 from .auth import build_fastmcp_auth, configure_adc_from_base64
 from .safety import SafetyError
-from .tools import MUTATION_TOOLS, READ_TOOLS
+from .tools import TOOL_DEFINITIONS
 
 ToolFunction = Callable[..., Awaitable[Any]]
 
@@ -36,11 +36,25 @@ def _with_structured_errors(function: ToolFunction) -> ToolFunction:
     return wrapped
 
 
-def _add_tool(server: FastMCP, function: ToolFunction, *, read_only: bool) -> None:
+def _add_tool(
+    server: FastMCP,
+    function: ToolFunction,
+    *,
+    title: str,
+    read_only: bool,
+    destructive: bool,
+    idempotent: bool,
+) -> None:
     server.add_tool(
         Tool.from_function(
             _with_structured_errors(function),
-            annotations=ToolAnnotations(readOnlyHint=read_only),
+            annotations=ToolAnnotations(
+                title=title,
+                readOnlyHint=read_only,
+                destructiveHint=destructive,
+                idempotentHint=idempotent,
+                openWorldHint=True,
+            ),
         )
     )
 
@@ -51,8 +65,19 @@ def create_horizon_server() -> FastMCP:
         "Google Tag Manager MCP Server",
         auth=build_fastmcp_auth(),
     )
-    for function in READ_TOOLS:
-        _add_tool(server, function, read_only=True)
-    for function in MUTATION_TOOLS:
-        _add_tool(server, function, read_only=False)
+    for (
+        function,
+        title,
+        read_only,
+        destructive,
+        idempotent,
+    ) in TOOL_DEFINITIONS:
+        _add_tool(
+            server,
+            function,
+            title=title,
+            read_only=read_only,
+            destructive=destructive,
+            idempotent=idempotent,
+        )
     return server

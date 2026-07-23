@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from gtm_mcp.safety import (
+    CRUD_CONTRACT_VERSION,
     SafetyError,
     canonical_json,
-    issue_confirmation,
-    load_safety_config,
+    load_scope_config,
     operation_hash,
-    verify_and_register_confirmation,
+    validate_scope,
 )
+from gtm_mcp.tools import TOOL_DEFINITIONS, gtm_batch_operations
 
 
 class SafetyTests(unittest.TestCase):
@@ -22,47 +25,149 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(operation_hash(left), operation_hash(right))
         self.assertEqual(len(operation_hash(left)), 32)
 
-    def test_confirmation_is_bound_and_single_use_per_process(self) -> None:
-        payload = {"stage": "TEST", "operations": [{"x": 1}]}
-        scope = {
-            "stage": "TEST",
-            "accountIds": ["1"],
-            "containerIds": ["2"],
-            "workspaceIds": ["3"],
-            "operationCount": 1,
+    def test_obsolete_gate_environment_is_ignored(self) -> None:
+        environment = {
+            "GTM_ALLOWED_ACCOUNT_IDS": "1",
+            "GTM_ALLOWED_CONTAINER_IDS": "2",
+            "GTM_ALLOWED_WORKSPACE_IDS": "3",
+            "GTM_MUTATIONS_ENABLED": "false",
+            "GTM_ALLOW_DELETE": "false",
+            "GTM_CONFIRMATION_SECRET": "unused",
         }
-        with patch.dict(os.environ, {"GTM_CONFIRMATION_SECRET": "x" * 48}, clear=False):
-            receipt = issue_confirmation(
-                payload,
-                verb="EXECUTE",
-                stage="TEST",
-                scope=scope,
-                ttl_seconds=900,
-            )
-            verified = verify_and_register_confirmation(
-                receipt["required_confirmation"],
-                payload,
-                expected_verb="EXECUTE",
-                stage="TEST",
-                scope=scope,
-            )
-            self.assertTrue(verified["confirmation_verified"])
-            with self.assertRaisesRegex(SafetyError, "already registered"):
-                verify_and_register_confirmation(
-                    receipt["required_confirmation"],
-                    payload,
-                    expected_verb="EXECUTE",
-                    stage="TEST",
-                    scope=scope,
-                )
+        with patch.dict(os.environ, environment, clear=True):
+            config = load_scope_config()
+        self.assertEqual(config.allowed_account_ids, frozenset({"1"}))
+        validate_scope(
+            config,
+            account_id="1",
+            container_id="2",
+            workspace_id="3",
+        )
 
-    def test_environment_is_fail_closed(self) -> None:
+    def test_empty_allowlist_fails_closed(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            config = load_safety_config()
-        self.assertFalse(config.mutations_enabled)
-        self.assertFalse(config.allow_publish)
-        self.assertEqual(config.max_operations, 10)
-        self.assertEqual(config.allowed_account_ids, frozenset())
+            config = load_scope_config()
+        with self.assertRaises(SafetyError) as context:
+            validate_scope(config, account_id="1", container_id="2")
+        self.assertEqual(context.exception.code, "ALLOWLIST_NOT_CONFIGURED")
+
+    def test_dry_run_never_calls_mutation_executor(self) -> None:
+        normalized = [
+            {
+                "resource": "folder",
+                "action": "create",
+                "account_id": "1",
+                "container_id": "2",
+                "workspace_id": "3",
+                "resource_id": None,
+                "parent": "accounts/1/containers/2/workspaces/3",
+                "path": None,
+                "data": {"name": "codex-test"},
+                "workspace_fingerprint": "wf",
+                "resource_fingerprint": None,
+                "no_op_reason": None,
+            }
+        ]
+        with (
+            patch("gtm_mcp.tools.load_scope_config", return_value=Mock()),
+            patch("gtm_mcp.tools.get_gtm_service", return_value=Mock()),
+            patch(
+                "gtm_mcp.tools.normalize_operations",
+                new=AsyncMock(return_value=normalized),
+            ),
+            patch("gtm_mcp.tools.execute_one", new=AsyncMock()) as execute,
+        ):
+            result = asyncio.run(
+                gtm_batch_operations(
+                    "1",
+                    "2",
+                    "3",
+                    [
+                        {
+                            "resource": "folder",
+                            "action": "create",
+                            "data": {"name": "x"},
+                        }
+                    ],
+                    dry_run=True,
+                )
+            )
+        self.assertEqual(result["contract_version"], CRUD_CONTRACT_VERSION)
+        self.assertEqual(result["execution_status"], "NOT_EXECUTED")
+        self.assertFalse(result["verification"]["google_api_mutation_sent"])
+        execute.assert_not_awaited()
+
+    def test_idempotent_delete_noop_sends_no_mutation(self) -> None:
+        normalized = [
+            {
+                "resource": "folder",
+                "action": "delete",
+                "account_id": "1",
+                "container_id": "2",
+                "workspace_id": "3",
+                "resource_id": "4",
+                "parent": "accounts/1/containers/2/workspaces/3",
+                "path": "accounts/1/containers/2/workspaces/3/folders/4",
+                "data": None,
+                "workspace_fingerprint": "wf",
+                "resource_fingerprint": None,
+                "no_op_reason": "ALREADY_ABSENT",
+            }
+        ]
+        with (
+            patch("gtm_mcp.tools.load_scope_config", return_value=Mock()),
+            patch("gtm_mcp.tools.get_gtm_service", return_value=Mock()),
+            patch(
+                "gtm_mcp.tools.normalize_operations",
+                new=AsyncMock(return_value=normalized),
+            ),
+            patch("gtm_mcp.tools.execute_one", new=AsyncMock()) as execute,
+        ):
+            result = asyncio.run(
+                gtm_batch_operations(
+                    "1",
+                    "2",
+                    "3",
+                    [
+                        {
+                            "resource": "folder",
+                            "action": "delete",
+                            "resource_id": "4",
+                        }
+                    ],
+                )
+            )
+        self.assertEqual(result["execution_status"], "SUCCEEDED")
+        self.assertEqual(result["results"][0]["outcome"], "ALREADY_ABSENT")
+        self.assertFalse(result["execution_attempted"])
+        execute.assert_not_awaited()
+
+    def test_public_write_signatures_have_no_confirmation_gate(self) -> None:
+        write_definitions = [
+            definition for definition in TOOL_DEFINITIONS if not definition[2]
+        ]
+        self.assertTrue(write_definitions)
+        for (
+            function,
+            _title,
+            _read_only,
+            _destructive,
+            _idempotent,
+        ) in write_definitions:
+            parameters = inspect.signature(function).parameters
+            self.assertNotIn("confirmation", parameters)
+            self.assertNotIn("validate_only", parameters)
+            self.assertIn("dry_run", parameters)
+
+    def test_delete_annotation_is_truthful(self) -> None:
+        by_name = {
+            definition[0].__name__: definition
+            for definition in TOOL_DEFINITIONS
+        }
+        delete = by_name["gtm_delete_resource"]
+        self.assertFalse(delete[2])
+        self.assertTrue(delete[3])
+        self.assertTrue(delete[4])
 
 
 if __name__ == "__main__":

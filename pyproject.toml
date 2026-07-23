@@ -1,7 +1,7 @@
 [project]
 name = "google-tag-manager-mcp-horizon"
 version = "0.1.0"
-description = "Protected Google Tag Manager MCP server for Prefect Horizon"
+description = "Direct CRUD Google Tag Manager MCP server for Prefect Horizon"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 readme = "README.md"
